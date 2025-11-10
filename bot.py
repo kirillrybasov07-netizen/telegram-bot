@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 # Конфигурация из переменных окружения
 BOT_TOKEN = os.environ.get('8563201491:AAH_rDOPsbb10BL60duS6-K2tW0fLWb6gbg')
-ADMIN_IDS = eval(os.environ.get('ADMIN_IDS', '[895930863, 1377287878, 1260133367]'))
+ADMIN_IDS = eval(os.environ.get('[895930863, 1377287878, 1260133367]'))
 
 if not BOT_TOKEN:
     logger.error("BOT_TOKEN not set!")
