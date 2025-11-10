@@ -9,10 +9,15 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
+logger = logging.getLogger(__name__)
 
 # Конфигурация из переменных окружения
-BOT_TOKEN = os.environ.get('BOT_TOKEN', 'YOUR_BOT_TOKEN_HERE')
-ADMIN_IDS = eval(os.environ.get('ADMIN_IDS', '[123456789]'))
+BOT_TOKEN = os.environ.get('BOT_TOKEN')
+ADMIN_IDS = eval(os.environ.get('ADMIN_IDS', '[]'))
+
+if not BOT_TOKEN:
+    logger.error("BOT_TOKEN not set!")
+    exit(1)
 
 # Файлы для хранения данных
 SCHEDULE_FILE = "schedule.json"
@@ -25,7 +30,7 @@ def load_data(filename):
             with open(filename, 'r', encoding='utf-8') as f:
                 return json.load(f)
     except Exception as e:
-        logging.error(f"Error loading {filename}: {e}")
+        logger.error(f"Error loading {filename}: {e}")
     return {}
 
 def save_data(data, filename):
@@ -35,7 +40,7 @@ def save_data(data, filename):
             json.dump(data, f, ensure_ascii=False, indent=2)
         return True
     except Exception as e:
-        logging.error(f"Error saving {filename}: {e}")
+        logger.error(f"Error saving {filename}: {e}")
         return False
 
 # Клавиатуры
@@ -71,14 +76,10 @@ def get_days_keyboard():
 def start(update, context):
     """Обработчик команды /start"""
     user_id = update.message.from_user.id
-    welcome_text = """
-👋 Привет! Я бот для домашних заданий.
-
-📚 Посмотреть ДЗ - посмотреть домашние задания
-📅 Посмотреть расписание - посмотреть расписание занятий
-    """
+    welcome_text = "👋 Привет! Я бот для домашних заданий.\n\n📚 Посмотреть ДЗ - посмотреть домашние задания\n📅 Посмотреть расписание - посмотреть расписание занятий"
+    
     if user_id in ADMIN_IDS:
-        welcome_text += "\n⚙️ У вас есть доступ к админ-панели"
+        welcome_text += "\n\n⚙️ У вас есть доступ к админ-панели"
     
     update.message.reply_text(welcome_text, reply_markup=get_main_keyboard(user_id))
 
@@ -146,7 +147,7 @@ def show_schedule(update, user_id):
     days = {"1": "ПОНЕДЕЛЬНИК", "2": "ВТОРНИК", "3": "СРЕДА", "4": "ЧЕТВЕРГ", "5": "ПЯТНИЦА"}
     
     for day_num, day_name in days.items():
-        schedule_text += f"**{day_name}**\n"
+        schedule_text += f"{day_name}\n"
         if day_num in schedule:
             schedule_text += f"{schedule[day_num]}\n"
         else:
@@ -191,7 +192,7 @@ def show_all_homework(update, user_id):
             "4": "ЧЕТВЕРГ", "5": "ПЯТНИЦА"}
     
     for day_num, day_name in days.items():
-        hw_text += f"**{day_name}**\n"
+        hw_text += f"{day_name}\n"
         if day_num in homework:
             hw_text += f"{homework[day_num]}\n"
         else:
@@ -240,11 +241,13 @@ def handle_admin_input(update, context, text, user_id):
                                     reply_markup=get_admin_keyboard())
         context.user_data['action'] = None
 
+def error_handler(update, context):
+    """Обработчик ошибок"""
+    logger.warning('Update "%s" caused error "%s"', update, context.error)
+
 def main():
     """Основная функция"""
-    if BOT_TOKEN == 'YOUR_BOT_TOKEN_HERE':
-        logging.error("BOT_TOKEN not set!")
-        return
+    logger.info("Starting bot...")
     
     updater = Updater(BOT_TOKEN, use_context=True)
     dp = updater.dispatcher
@@ -252,8 +255,9 @@ def main():
     # Добавляем обработчики
     dp.add_handler(CommandHandler("start", start))
     dp.add_handler(MessageHandler(Filters.text, handle_message))
+    dp.add_error_handler(error_handler)
     
-    logging.info("Бот запущен!")
+    logger.info("Бот запущен!")
     updater.start_polling()
     updater.idle()
 
