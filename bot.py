@@ -1,71 +1,89 @@
 import json
 import os
-import telegram
+import logging
 from telegram import ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
 
-# НАСТРОЙКИ - ЗАМЕНИТЕ ЭТО!
-BOT_TOKEN = "8563201491:AAH_rDOPsbb10BL60duS6-K2tW0fLWb6gbg"
-ADMIN_IDS = [895930863, 1377287878, 1260133367]  # Ваш цифровой ID из Telegram
+# Настройка логирования
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
 
-# Загрузка данных
-def load_schedule():
-    if os.path.exists("schedule.json"):
-        with open("schedule.json", "r", encoding="utf-8") as f:
-            return json.load(f)
+# Конфигурация из переменных окружения
+BOT_TOKEN = os.environ.get('BOT_TOKEN', 'YOUR_BOT_TOKEN_HERE')
+ADMIN_IDS = eval(os.environ.get('ADMIN_IDS', '[123456789]'))
+
+# Файлы для хранения данных
+SCHEDULE_FILE = "schedule.json"
+HOMEWORK_FILE = "homework.json"
+
+def load_data(filename):
+    """Загрузка данных из JSON файла"""
+    try:
+        if os.path.exists(filename):
+            with open(filename, 'r', encoding='utf-8') as f:
+                return json.load(f)
+    except Exception as e:
+        logging.error(f"Error loading {filename}: {e}")
     return {}
 
-def save_schedule(data):
-    with open("schedule.json", "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-
-def load_homework():
-    if os.path.exists("homework.json"):
-        with open("homework.json", "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {}
-
-def save_homework(data):
-    with open("homework.json", "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+def save_data(data, filename):
+    """Сохранение данных в JSON файл"""
+    try:
+        with open(filename, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        return True
+    except Exception as e:
+        logging.error(f"Error saving {filename}: {e}")
+        return False
 
 # Клавиатуры
 def get_main_keyboard(user_id):
+    """Основная клавиатура"""
     is_admin = user_id in ADMIN_IDS
     keyboard = [
-        ["📚 Посмотреть ДЗ", "📅 Посмотреть расписание"]
+        [KeyboardButton("📚 Посмотреть ДЗ"), KeyboardButton("📅 Посмотреть расписание")]
     ]
     if is_admin:
-        keyboard.append(["⚙️ Админ-панель"])
-    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-
-def get_days_keyboard():
-    keyboard = [
-        ["📅 Понедельник", "📅 Вторник", "📅 Среда"],
-        ["📅 Четверг", "📅 Пятница", "📅 Вся неделя"],
-        ["🔙 Назад"]
-    ]
+        keyboard.append([KeyboardButton("⚙️ Админ-панель")])
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 def get_admin_keyboard():
+    """Клавиатура админ-панели"""
     keyboard = [
         ["✏️ Изменить расписание", "📝 Изменить ДЗ"],
         ["🔙 Назад"]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
+def get_days_keyboard():
+    """Клавиатура выбора дней"""
+    keyboard = [
+        ["📅 Понедельник", "📅 Вторник"],
+        ["📅 Среда", "📅 Четверг"],
+        ["📅 Пятница", "📅 Вся неделя"],
+        ["🔙 Назад"]
+    ]
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
 # Команды бота
 def start(update, context):
+    """Обработчик команды /start"""
     user_id = update.message.from_user.id
-    update.message.reply_text(
-        "👋 Привет! Я бот для домашних заданий.\n\n"
-        "📚 - Посмотреть домашнее задание\n"
-        "📅 - Посмотреть расписание\n"
-        "⚙️ - Админ-панель (только для админов)",
-        reply_markup=get_main_keyboard(user_id)
-    )
+    welcome_text = """
+👋 Привет! Я бот для домашних заданий.
+
+📚 Посмотреть ДЗ - посмотреть домашние задания
+📅 Посмотреть расписание - посмотреть расписание занятий
+    """
+    if user_id in ADMIN_IDS:
+        welcome_text += "\n⚙️ У вас есть доступ к админ-панели"
+    
+    update.message.reply_text(welcome_text, reply_markup=get_main_keyboard(user_id))
 
 def handle_message(update, context):
+    """Обработчик текстовых сообщений"""
     user_id = update.message.from_user.id
     text = update.message.text
 
@@ -73,134 +91,169 @@ def handle_message(update, context):
         update.message.reply_text("Выберите день:", reply_markup=get_days_keyboard())
     
     elif text == "📅 Посмотреть расписание":
-        schedule = load_schedule()
-        if schedule:
-            response = "📅 РАСПИСАНИЕ:\n\n"
-            days = {"1": "ПОНЕДЕЛЬНИК", "2": "ВТОРНИК", "3": "СРЕДА", "4": "ЧЕТВЕРГ", "5": "ПЯТНИЦА"}
-            for day_num, day_name in days.items():
-                response += f"**{day_name}**\n"
-                if day_num in schedule:
-                    response += f"{schedule[day_num]}\n"
-                else:
-                    response += "Расписания нет\n"
-                response += "\n"
-            update.message.reply_text(response, reply_markup=get_main_keyboard(user_id))
-        else:
-            update.message.reply_text("📅 Расписание еще не добавлено", reply_markup=get_main_keyboard(user_id))
+        show_schedule(update, user_id)
     
     elif text == "⚙️ Админ-панель" and user_id in ADMIN_IDS:
         update.message.reply_text("Админ-панель:", reply_markup=get_admin_keyboard())
     
-    # Просмотр ДЗ по дням
-    elif text == "📅 Понедельник":
-        show_homework(update, "1", "понедельник", user_id)
-    elif text == "📅 Вторник":
-        show_homework(update, "2", "вторник", user_id)
-    elif text == "📅 Среда":
-        show_homework(update, "3", "среду", user_id)
-    elif text == "📅 Четверг":
-        show_homework(update, "4", "четверг", user_id)
-    elif text == "📅 Пятница":
-        show_homework(update, "5", "пятницу", user_id)
+    elif text in ["📅 Понедельник", "📅 Вторник", "📅 Среда", "📅 Четверг", "📅 Пятница"]:
+        show_homework_for_day(update, text, user_id)
     
     elif text == "📅 Вся неделя":
-        homework = load_homework()
-        if homework:
-            response = "📚 ДЗ НА НЕДЕЛЮ:\n\n"
-            days = {"1": "ПОНЕДЕЛЬНИК", "2": "ВТОРНИК", "3": "СРЕДА", "4": "ЧЕТВЕРГ", "5": "ПЯТНИЦА"}
-            for day_num, day_name in days.items():
-                response += f"**{day_name}**\n"
-                if day_num in homework:
-                    response += f"{homework[day_num]}\n"
-                else:
-                    response += "ДЗ нет\n"
-                response += "\n"
-            update.message.reply_text(response, reply_markup=get_days_keyboard())
-        else:
-            update.message.reply_text("📚 Домашних заданий на неделю нет", reply_markup=get_days_keyboard())
+        show_all_homework(update, user_id)
+    
+    elif text == "🔙 Назад":
+        update.message.reply_text("Главное меню:", reply_markup=get_main_keyboard(user_id))
     
     # Админские функции
     elif text == "✏️ Изменить расписание" and user_id in ADMIN_IDS:
         context.user_data['action'] = 'waiting_schedule'
         update.message.reply_text(
-            "Введите расписание в формате:\n"
-            "1: Математика 9:00-10:30, Физика 11:00-12:30\n"
-            "2: Литература 9:00-10:30, Химия 11:00-12:30\n"
-            "и т.д. (1-понедельник, 2-вторник...)\n\n"
-            "Отправьте одним сообщением:",
-            reply_markup=ReplyKeyboardMarkup([["🔙 Отмена"]], resize_keyboard=True)
+            "Введите новое расписание. Каждая строка - день недели:\n"
+            "1: Математика 9:00, Физика 11:00\n"
+            "2: Литература 9:00, Химия 11:00\n"
+            "3: История 9:00, Биология 11:00\n"
+            "4: Английский 9:00, Физра 11:00\n"
+            "5: Информатика 9:00, География 11:00\n\n"
+            "Отправьте одним сообщением:"
         )
     
     elif text == "📝 Изменить ДЗ" and user_id in ADMIN_IDS:
         context.user_data['action'] = 'waiting_homework'
         update.message.reply_text(
-            "Введите ДЗ в формате:\n"
-            "1: Стр. 25-30, упр. 5-10\n"
+            "Введите ДЗ. Каждая строка - день недели:\n"
+            "1: Учебник стр. 45-50, упр. 1-5\n"
             "2: Подготовить доклад\n"
-            "и т.д. (1-понедельник, 2-вторник...)\n\n"
-            "Отправьте одним сообщением:",
-            reply_markup=ReplyKeyboardMarkup([["🔙 Отмена"]], resize_keyboard=True)
+            "3: Решить задачи по физике\n"
+            "4: Сочинение на тему 'Лето'\n"
+            "5: Проект по информатике\n\n"
+            "Отправьте одним сообщением:"
         )
     
-    elif text == "🔙 Назад":
-        update.message.reply_text("Главное меню:", reply_markup=get_main_keyboard(user_id))
-    
-    elif text == "🔙 Отмена":
-        context.user_data['action'] = None
-        update.message.reply_text("Отменено", reply_markup=get_admin_keyboard() if user_id in ADMIN_IDS else get_main_keyboard(user_id))
-    
-    # Обработка ввода расписания/ДЗ от админа
-    elif user_id in ADMIN_IDS and 'action' in context.user_data:
+    # Обработка ввода от админа
+    elif user_id in ADMIN_IDS and context.user_data.get('action'):
         handle_admin_input(update, context, text, user_id)
 
-def show_homework(update, day_num, day_name, user_id):
-    homework = load_homework()
+def show_schedule(update, user_id):
+    """Показать расписание"""
+    schedule = load_data(SCHEDULE_FILE)
+    if not schedule:
+        update.message.reply_text("📅 Расписание еще не добавлено", 
+                                reply_markup=get_main_keyboard(user_id))
+        return
+    
+    schedule_text = "📅 РАСПИСАНИЕ:\n\n"
+    days = {"1": "ПОНЕДЕЛЬНИК", "2": "ВТОРНИК", "3": "СРЕДА", "4": "ЧЕТВЕРГ", "5": "ПЯТНИЦА"}
+    
+    for day_num, day_name in days.items():
+        schedule_text += f"**{day_name}**\n"
+        if day_num in schedule:
+            schedule_text += f"{schedule[day_num]}\n"
+        else:
+            schedule_text += "Расписания нет\n"
+        schedule_text += "\n"
+    
+    update.message.reply_text(schedule_text, reply_markup=get_main_keyboard(user_id))
+
+def show_homework_for_day(update, day_button, user_id):
+    """Показать ДЗ для конкретного дня"""
+    day_mapping = {
+        "📅 Понедельник": "1",
+        "📅 Вторник": "2", 
+        "📅 Среда": "3",
+        "📅 Четверг": "4",
+        "📅 Пятница": "5"
+    }
+    
+    day_num = day_mapping.get(day_button)
+    homework = load_data(HOMEWORK_FILE)
+    
+    day_names = {"1": "понедельник", "2": "вторник", "3": "среду", 
+                 "4": "четверг", "5": "пятницу"}
+    
     if day_num in homework:
-        response = f"📚 ДЗ на {day_name}:\n\n{homework[day_num]}"
+        response = f"📚 ДЗ на {day_names[day_num]}:\n\n{homework[day_num]}"
     else:
-        response = f"📚 На {day_name} домашнее задание не задано"
+        response = f"📚 На {day_names[day_num]} домашнее задание не задано"
+    
     update.message.reply_text(response, reply_markup=get_days_keyboard())
 
+def show_all_homework(update, user_id):
+    """Показать все ДЗ на неделю"""
+    homework = load_data(HOMEWORK_FILE)
+    if not homework:
+        update.message.reply_text("📚 Домашних заданий на неделю нет", 
+                                reply_markup=get_days_keyboard())
+        return
+    
+    hw_text = "📚 ДЗ НА НЕДЕЛЮ:\n\n"
+    days = {"1": "ПОНЕДЕЛЬНИК", "2": "ВТОРНИК", "3": "СРЕДА", 
+            "4": "ЧЕТВЕРГ", "5": "ПЯТНИЦА"}
+    
+    for day_num, day_name in days.items():
+        hw_text += f"**{day_name}**\n"
+        if day_num in homework:
+            hw_text += f"{homework[day_num]}\n"
+        else:
+            hw_text += "ДЗ нет\n"
+        hw_text += "\n"
+    
+    update.message.reply_text(hw_text, reply_markup=get_days_keyboard())
+
 def handle_admin_input(update, context, text, user_id):
+    """Обработка ввода от администратора"""
     action = context.user_data.get('action')
     
     if action == 'waiting_schedule':
-        # Простой парсинг расписания
+        # Парсинг расписания
         schedule = {}
         lines = text.split('\n')
         for line in lines:
-            if ':' in line:
+            if ':' in line and line.split(':')[0].strip().isdigit():
                 day_num = line.split(':')[0].strip()
                 day_schedule = line.split(':', 1)[1].strip()
                 schedule[day_num] = day_schedule
         
-        save_schedule(schedule)
-        update.message.reply_text("✅ Расписание обновлено!", reply_markup=get_admin_keyboard())
+        if save_data(schedule, SCHEDULE_FILE):
+            update.message.reply_text("✅ Расписание обновлено!", 
+                                    reply_markup=get_admin_keyboard())
+        else:
+            update.message.reply_text("❌ Ошибка сохранения расписания", 
+                                    reply_markup=get_admin_keyboard())
         context.user_data['action'] = None
     
     elif action == 'waiting_homework':
-        # Простой парсинг ДЗ
+        # Парсинг ДЗ
         homework = {}
         lines = text.split('\n')
         for line in lines:
-            if ':' in line:
+            if ':' in line and line.split(':')[0].strip().isdigit():
                 day_num = line.split(':')[0].strip()
                 day_homework = line.split(':', 1)[1].strip()
                 homework[day_num] = day_homework
         
-        save_homework(homework)
-        update.message.reply_text("✅ Домашние задания обновлены!", reply_markup=get_admin_keyboard())
+        if save_data(homework, HOMEWORK_FILE):
+            update.message.reply_text("✅ Домашние задания обновлены!", 
+                                    reply_markup=get_admin_keyboard())
+        else:
+            update.message.reply_text("❌ Ошибка сохранения ДЗ", 
+                                    reply_markup=get_admin_keyboard())
         context.user_data['action'] = None
 
-# Запуск бота
 def main():
+    """Основная функция"""
+    if BOT_TOKEN == 'YOUR_BOT_TOKEN_HERE':
+        logging.error("BOT_TOKEN not set!")
+        return
+    
     updater = Updater(BOT_TOKEN, use_context=True)
     dp = updater.dispatcher
     
+    # Добавляем обработчики
     dp.add_handler(CommandHandler("start", start))
     dp.add_handler(MessageHandler(Filters.text, handle_message))
     
-    print("✅ Бот запущен! Ищите его в Telegram")
+    logging.info("Бот запущен!")
     updater.start_polling()
     updater.idle()
 
